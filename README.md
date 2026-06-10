@@ -1,2 +1,2 @@
 # euro-2026-expenses-splitter
-App for how my wife and I split holiday spend
+Expense splitting app for euro 2026 holiday spend
