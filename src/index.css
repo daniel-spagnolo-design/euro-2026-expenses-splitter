@@ -1,0 +1,38 @@
+@import '@fontsource-variable/dm-sans';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #ffffff;
+  color: #1a1a1a;
+  font-family: 'DM Sans Variable', 'DM Sans', Inter, system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Respect iPhone safe areas */
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+input,
+select,
+textarea {
+  font-size: 16px; /* prevents iOS zoom on focus */
+}
