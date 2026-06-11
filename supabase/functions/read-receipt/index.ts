@@ -1,8 +1,14 @@
 // Reads a receipt photo and returns { amount, currency } using Claude vision.
-// Deploy:  supabase functions deploy read-receipt
+// Deploy:  supabase functions deploy read-receipt --no-verify-jwt
 // Secret:  supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+//
+// Deployed with --no-verify-jwt because the gateway's JWT check rejects this
+// project's (new signing-key) tokens. We instead verify the signed-in user
+// ourselves against the Auth API below, so the function stays protected.
 
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')
 const MODEL = 'claude-haiku-4-5-20251001'
 
 const cors = {
@@ -17,9 +23,24 @@ const json = (body: unknown, status = 200) =>
     headers: { ...cors, 'Content-Type': 'application/json' },
   })
 
+/** Confirm the caller is a signed-in user by validating their token with GoTrue. */
+async function isAuthed(req: Request): Promise<boolean> {
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader || !SUPABASE_URL || !SUPABASE_ANON_KEY) return false
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { Authorization: authHeader, apikey: SUPABASE_ANON_KEY },
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (!ANTHROPIC_API_KEY) return json({ error: 'OCR not configured' }, 500)
+  if (!(await isAuthed(req))) return json({ error: 'Unauthorized' }, 401)
 
   try {
     const { image, media_type } = await req.json()
