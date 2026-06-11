@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { downscaleImage } from '../lib/image'
 import { readReceipt, type ReceiptReading } from '../lib/ocr'
 
 interface Props {
@@ -15,12 +16,20 @@ export function ReceiptCapture({ onPhoto, onReading }: Props) {
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview) }, [preview])
 
   async function handleFile(file: File) {
-    if (preview) URL.revokeObjectURL(preview)
-    setPreview(URL.createObjectURL(file))
-    onPhoto(file)
-
     setStatus('reading')
-    const reading = await readReceipt(file)
+    // Downscale + convert to JPEG so big/HEIC phone photos are readable and small.
+    let image: Blob = file
+    try {
+      image = await downscaleImage(file)
+    } catch {
+      image = file
+    }
+
+    if (preview) URL.revokeObjectURL(preview)
+    setPreview(URL.createObjectURL(image))
+    onPhoto(image)
+
+    const reading = await readReceipt(image)
     onReading(reading)
     setStatus(reading.amount != null ? 'read' : 'manual')
   }
@@ -35,11 +44,11 @@ export function ReceiptCapture({ onPhoto, onReading }: Props) {
 
   return (
     <div className="rounded-2xl border border-dashed border-hairline bg-surface-soft p-3">
+      {/* No `capture` attr: iOS then offers Camera AND Photo Library / Browse */}
       <input
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0]
