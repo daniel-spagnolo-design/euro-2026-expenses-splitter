@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useSession } from '../components/SessionProvider'
-import { createLocalTrip, createTrip, joinTrip, sendLoginCode, verifyLogin } from '../lib/session'
+import { createLocalTrip, createTrip, joinTrip, signInWithPassword, signUpWithPassword } from '../lib/session'
 
 export function Onboarding() {
   const { phase, localOnly } = useSession()
@@ -11,34 +11,20 @@ export function Onboarding() {
 
 function AuthStep() {
   const { refresh } = useSession()
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [email, setEmail] = useState('')
-  const [pasted, setPasted] = useState('')
-  const [sent, setSent] = useState(false)
+  const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  async function send(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      await sendLoginCode(email)
-      setSent(true)
-    } catch (err) {
-      setError((err as Error).message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function verify(e: React.FormEvent) {
-    e.preventDefault()
-    setBusy(true)
-    setError(null)
-    try {
-      await verifyLogin(email, pasted)
-      // Session is now stored in this context; advance the gate.
-      await refresh()
+      if (mode === 'signup') await signUpWithPassword(email, password)
+      else await signInWithPassword(email, password)
+      await refresh() // session now lives in this context; advance the gate
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -48,52 +34,48 @@ function AuthStep() {
 
   return (
     <Shell title="Sign in">
-      {sent ? (
-        <form onSubmit={verify} className="space-y-3">
-          <p className="text-sm text-steel">
-            We emailed <span className="font-semibold text-ink">{email}</span>. Open it, then
-            <span className="font-semibold text-ink"> press and hold the “Sign in” link → Copy Link</span>,
-            and paste it below. (Don’t tap the link — that opens the browser instead.)
-          </p>
-          <textarea
-            required
-            rows={3}
-            value={pasted}
-            onChange={(e) => setPasted(e.target.value)}
-            placeholder="Paste the sign-in link here"
-            className={`${inputClass} resize-none break-all`}
-          />
-          {error && <p className="text-sm text-danger">{error}</p>}
-          <button disabled={busy || !pasted.trim()} className={primaryBtn}>
-            {busy ? 'Signing in…' : 'Sign in'}
-          </button>
-          <button
-            type="button"
-            onClick={() => { setSent(false); setPasted(''); setError(null) }}
-            className="w-full text-sm text-steel underline"
-          >
-            Use a different email
-          </button>
-        </form>
-      ) : (
-        <form onSubmit={send} className="space-y-3">
-          <p className="text-sm text-steel">
-            We’ll email you a sign-in link — no password needed.
-          </p>
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            className={inputClass}
-          />
-          {error && <p className="text-sm text-danger">{error}</p>}
-          <button disabled={busy} className={primaryBtn}>
-            {busy ? 'Sending…' : 'Email me a link'}
-          </button>
-        </form>
-      )}
+      <div className="mb-4 flex gap-2 text-sm">
+        <button
+          type="button"
+          onClick={() => { setMode('signin'); setError(null) }}
+          className={`flex-1 rounded-full py-2.5 font-semibold ${mode === 'signin' ? 'bg-ink text-canvas' : 'border border-hairline text-steel'}`}
+        >
+          Sign in
+        </button>
+        <button
+          type="button"
+          onClick={() => { setMode('signup'); setError(null) }}
+          className={`flex-1 rounded-full py-2.5 font-semibold ${mode === 'signup' ? 'bg-ink text-canvas' : 'border border-hairline text-steel'}`}
+        >
+          Create account
+        </button>
+      </div>
+
+      <form onSubmit={submit} className="space-y-3">
+        <input
+          type="email"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@example.com"
+          className={inputClass}
+        />
+        <input
+          type="password"
+          autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+          required
+          minLength={6}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Password"
+          className={inputClass}
+        />
+        {error && <p className="text-sm text-danger">{error}</p>}
+        <button disabled={busy || !email || password.length < 6} className={primaryBtn}>
+          {busy ? 'Working…' : mode === 'signup' ? 'Create account' : 'Sign in'}
+        </button>
+      </form>
     </Shell>
   )
 }

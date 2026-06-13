@@ -1,4 +1,3 @@
-import type { EmailOtpType } from '@supabase/supabase-js'
 import { db, META, metaSet } from './db'
 import { getSupabase } from './supabase'
 import { sync } from './sync'
@@ -12,71 +11,34 @@ function genJoinCode(): string {
 }
 
 /**
- * Email the user a 6-digit sign-in code.
+ * Email + password auth. Chosen over magic links because, on an installed iOS
+ * PWA, email links open in Safari (a separate storage context) and never reach
+ * the app, and webmail scanners (e.g. Yahoo) pre-open the link and burn the
+ * one-time token. Password sign-in sends no email at all, so the session is
+ * created directly in the app's own context.
  *
- * We deliberately do NOT pass `emailRedirectTo`: a clickable link opens in the
- * default browser, which on iOS is a separate storage context from the
- * installed standalone PWA — so the session would land in Safari and never
- * reach the app the user signed in from. Sending a code the user types back
- * into the app creates the session in the same context. (`shouldCreateUser`
- * defaults to true, so first-time users are created.)
+ * Requires "Confirm email" to be OFF in Supabase (Authentication → Providers →
+ * Email); otherwise signUp emails a confirmation link instead of returning a
+ * session — we surface that case with a clear message below.
  */
-export async function sendLoginCode(email: string): Promise<void> {
+export async function signUpWithPassword(email: string, password: string): Promise<void> {
   const sb = getSupabase()
   if (!sb) throw new Error('Supabase not configured')
-  const { error } = await sb.auth.signInWithOtp({ email })
+  const { data, error } = await sb.auth.signUp({ email, password })
   if (error) throw error
+  if (!data.session) {
+    throw new Error(
+      'Account created, but “Confirm email” is still on in Supabase. Turn it off ' +
+        '(Authentication → Providers → Email), then sign in.',
+    )
+  }
 }
 
-/**
- * Finish signing in from whatever the email contained. On iOS an installed
- * standalone PWA has its own storage, separate from Safari, and email links
- * always open in Safari — so the session can never arrive by *clicking* the
- * link. Instead the user pastes the sign-in link (or types a code) back into
- * the app, and we verify it here so the session is created in THIS context.
- *
- * Accepts either:
- *   - the full sign-in link (we extract its token_hash + type), or
- *   - a typed 6-digit code (only present if custom SMTP shows {{ .Token }}).
- */
-export async function verifyLogin(email: string, input: string): Promise<void> {
+export async function signInWithPassword(email: string, password: string): Promise<void> {
   const sb = getSupabase()
   if (!sb) throw new Error('Supabase not configured')
-  const raw = input.trim()
-  if (!raw) throw new Error('Paste the sign-in link from your email')
-
-  const link = extractTokenFromLink(raw)
-  if (link) {
-    const { error } = await sb.auth.verifyOtp({ token_hash: link.token, type: link.type })
-    if (error) throw error
-    return
-  }
-
-  // Fall back to a typed code (requires the email to show {{ .Token }}).
-  const { error } = await sb.auth.verifyOtp({ email, token: raw, type: 'email' })
+  const { error } = await sb.auth.signInWithPassword({ email, password })
   if (error) throw error
-}
-
-/**
- * Pull the token_hash + type out of a pasted Supabase sign-in link. Tolerant of
- * email-provider link wrappers (e.g. Yahoo's deref redirect) that percent-encode
- * the real URL: we decode a few times, then regex-match the token directly.
- */
-function extractTokenFromLink(value: string): { token: string; type: EmailOtpType } | null {
-  if (!/https?:\/\//i.test(value)) return null
-  let s = value
-  for (let i = 0; i < 3; i++) {
-    try {
-      const decoded = decodeURIComponent(s)
-      if (decoded === s) break
-      s = decoded
-    } catch {
-      break
-    }
-  }
-  const token = s.match(/[?&](?:token_hash|token)=([^&\s]+)/i)?.[1]
-  const type = (s.match(/[?&]type=([^&\s]+)/i)?.[1] ?? 'magiclink') as EmailOtpType
-  return token ? { token, type } : null
 }
 
 export async function signOut(): Promise<void> {
