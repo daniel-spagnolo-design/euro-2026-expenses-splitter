@@ -1,3 +1,4 @@
+import type { EmailOtpType } from '@supabase/supabase-js'
 import { db, META, metaSet } from './db'
 import { getSupabase } from './supabase'
 import { sync } from './sync'
@@ -10,15 +11,72 @@ function genJoinCode(): string {
   return out
 }
 
-export async function sendMagicLink(email: string): Promise<void> {
+/**
+ * Email the user a 6-digit sign-in code.
+ *
+ * We deliberately do NOT pass `emailRedirectTo`: a clickable link opens in the
+ * default browser, which on iOS is a separate storage context from the
+ * installed standalone PWA — so the session would land in Safari and never
+ * reach the app the user signed in from. Sending a code the user types back
+ * into the app creates the session in the same context. (`shouldCreateUser`
+ * defaults to true, so first-time users are created.)
+ */
+export async function sendLoginCode(email: string): Promise<void> {
   const sb = getSupabase()
   if (!sb) throw new Error('Supabase not configured')
-  const { error } = await sb.auth.signInWithOtp({
-    email,
-    // Include the Pages subpath so the magic link returns into the app.
-    options: { emailRedirectTo: window.location.origin + import.meta.env.BASE_URL },
-  })
+  const { error } = await sb.auth.signInWithOtp({ email })
   if (error) throw error
+}
+
+/**
+ * Finish signing in from whatever the email contained. On iOS an installed
+ * standalone PWA has its own storage, separate from Safari, and email links
+ * always open in Safari — so the session can never arrive by *clicking* the
+ * link. Instead the user pastes the sign-in link (or types a code) back into
+ * the app, and we verify it here so the session is created in THIS context.
+ *
+ * Accepts either:
+ *   - the full sign-in link (we extract its token_hash + type), or
+ *   - a typed 6-digit code (only present if custom SMTP shows {{ .Token }}).
+ */
+export async function verifyLogin(email: string, input: string): Promise<void> {
+  const sb = getSupabase()
+  if (!sb) throw new Error('Supabase not configured')
+  const raw = input.trim()
+  if (!raw) throw new Error('Paste the sign-in link from your email')
+
+  const link = extractTokenFromLink(raw)
+  if (link) {
+    const { error } = await sb.auth.verifyOtp({ token_hash: link.token, type: link.type })
+    if (error) throw error
+    return
+  }
+
+  // Fall back to a typed code (requires the email to show {{ .Token }}).
+  const { error } = await sb.auth.verifyOtp({ email, token: raw, type: 'email' })
+  if (error) throw error
+}
+
+/**
+ * Pull the token_hash + type out of a pasted Supabase sign-in link. Tolerant of
+ * email-provider link wrappers (e.g. Yahoo's deref redirect) that percent-encode
+ * the real URL: we decode a few times, then regex-match the token directly.
+ */
+function extractTokenFromLink(value: string): { token: string; type: EmailOtpType } | null {
+  if (!/https?:\/\//i.test(value)) return null
+  let s = value
+  for (let i = 0; i < 3; i++) {
+    try {
+      const decoded = decodeURIComponent(s)
+      if (decoded === s) break
+      s = decoded
+    } catch {
+      break
+    }
+  }
+  const token = s.match(/[?&](?:token_hash|token)=([^&\s]+)/i)?.[1]
+  const type = (s.match(/[?&]type=([^&\s]+)/i)?.[1] ?? 'magiclink') as EmailOtpType
+  return token ? { token, type } : null
 }
 
 export async function signOut(): Promise<void> {
