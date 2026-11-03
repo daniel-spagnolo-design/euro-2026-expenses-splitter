@@ -1,0 +1,38 @@
+name: Keep Supabase awake
+
+# Supabase pauses free-tier projects after 7 days without activity.
+# This runs a tiny real database query every 3 days (twice per 7-day window,
+# so one missed/delayed run still leaves margin).
+
+on:
+  schedule:
+    - cron: "17 6 */3 * *" # 06:17 UTC every 3rd day (off the hour = less queue delay)
+  workflow_dispatch: # allow a manual "Run workflow" from the Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reuse the client-safe URL + publishable key already committed in
+      # .env.production, so there are no extra secrets to keep in sync.
+      - name: Query the database
+        run: |
+          set -euo pipefail
+          URL=$(grep -E '^VITE_SUPABASE_URL=' .env.production | cut -d= -f2-)
+          KEY=$(grep -E '^VITE_SUPABASE_ANON_KEY=' .env.production | cut -d= -f2-)
+
+          # A PostgREST select goes all the way to Postgres. RLS returns [] for
+          # the anonymous role, but the query still executes = counts as activity.
+          status=$(curl -sS -o body.json -w '%{http_code}' \
+            "$URL/rest/v1/trips?select=id&limit=1" \
+            -H "apikey: $KEY" \
+            -H "Authorization: Bearer $KEY")
+
+          echo "HTTP $status"; cat body.json; echo
+          # Fail loudly (GitHub emails you) if the project is paused or broken.
+          test "$status" -ge 200 && test "$status" -lt 300
