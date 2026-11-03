@@ -16,7 +16,7 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Reuse the client-safe URL + publishable key already committed in
       # .env.production, so there are no extra secrets to keep in sync.
