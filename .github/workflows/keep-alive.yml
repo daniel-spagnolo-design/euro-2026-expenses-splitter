@@ -1,7 +1,7 @@
 name: Keep Supabase awake
 
 # Supabase pauses free-tier projects after 7 days without activity.
-# This runs a tiny real database query every 3 days (twice per 7-day window,
+# This performs a tiny real database write every 3 days (twice per 7-day window,
 # so one missed/delayed run still leaves margin).
 
 on:
@@ -20,18 +20,21 @@ jobs:
 
       # Reuse the client-safe URL + publishable key already committed in
       # .env.production, so there are no extra secrets to keep in sync.
-      - name: Query the database
+      - name: Write a heartbeat to the database
         run: |
           set -euo pipefail
           URL=$(grep -E '^VITE_SUPABASE_URL=' .env.production | cut -d= -f2-)
           KEY=$(grep -E '^VITE_SUPABASE_ANON_KEY=' .env.production | cut -d= -f2-)
 
-          # A PostgREST select goes all the way to Postgres. RLS returns [] for
-          # the anonymous role, but the query still executes = counts as activity.
-          status=$(curl -sS -o body.json -w '%{http_code}' \
-            "$URL/rest/v1/trips?select=id&limit=1" \
+          # Call the keep_alive() RPC (supabase/migrations/0002_keep_alive.sql),
+          # which UPSERTs a heartbeat row. A read that RLS filtered to [] was not
+          # counted as activity; a real write is the strongest signal we can send.
+          status=$(curl -sS -o body.json -w '%{http_code}' -X POST \
+            "$URL/rest/v1/rpc/keep_alive" \
             -H "apikey: $KEY" \
-            -H "Authorization: Bearer $KEY")
+            -H "Authorization: Bearer $KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}')
 
           echo "HTTP $status"; cat body.json; echo
           # Fail loudly (GitHub emails you) if the project is paused or broken.

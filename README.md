@@ -35,6 +35,8 @@ Open the URL it prints. Without Supabase keys the app runs in **“On this devic
 At [supabase.com](https://supabase.com) (free tier is plenty). Then in **SQL Editor**,
 run the migration in [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql)
 (creates tables, row-level security, the join function, and the `receipts` storage bucket).
+Then run [`supabase/migrations/0002_keep_alive.sql`](supabase/migrations/0002_keep_alive.sql),
+which adds the heartbeat the `keep-alive.yml` Action writes to so the free tier doesn't auto-pause.
 
 ### 2. Add the web app keys
 Copy `.env.example` → `.env.local` and fill in from **Project Settings → API**:
